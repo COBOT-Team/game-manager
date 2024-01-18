@@ -3,9 +3,13 @@
 <package format="3">
   <name>game_manager</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Source of truth on the current state of the game. Connects to clock over serial.</description>
   <maintainer email="zchampion2020@my.fit.edu">Zach Champion</maintainer>
   <license>GPL-3.0-only</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>chess_msgs</exec_depend>
+  <exec_depend>pyserial</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
