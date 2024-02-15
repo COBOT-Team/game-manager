@@ -3,6 +3,7 @@ from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.node import Node
 import serial
 import chess
+import re
 from datetime import datetime, timedelta
 from chess_msgs.msg import FullFEN, PartialFEN, GameConfig, ChessTime
 from chess_msgs.srv import SetTime, SetGameState, RestartGame
@@ -142,11 +143,58 @@ class GameManagerNode(Node):
 
         # Create timer for periodically polling the clock.
         self._clock_timer = self.create_timer(0.5, self.clock_timer_callback)  # 2 Hz
+        self._acks_received = 0  # The number of unused acks that have been received
 
     def destroy(self):
         if self._clock_connection is not None:
             self._clock_connection.close()
         super().destroy_node()
+
+    def get_clock_connection(self):
+        """
+        Gets the connection to the chess clock. If the connection is `None`, attempts to reconnect
+        to the clock.
+        """
+        if self._clock_connection is None:
+            self.get_logger().warn("Clock is not connected; attempting to reconnect")
+            try:
+                self._clock_connection = serial.Serial(self._clock_port, 9600)
+            except serial.SerialException:
+                self.get_logger().error(f"Could not connect to chess clock at {self._clock_port}")
+                self._clock_connection = None
+
+        return self._clock_connection
+
+    def poll_clock(self):
+        """
+        Polls the clock for a new message.
+
+        :return: The message received from the clock, or `None`
+        """
+        if self.get_clock_connection() is None:
+            self.get_logger().error("Clock is not connected; cannot poll")
+            return None
+        msg = self._clock_connection().readline()
+        if not "\n" in msg:
+            self.get_logger().warn("Clock timed out")
+            return None
+        if msg.strip() == "ack":
+            self._acks_received += 1
+
+    def wait_for_ack(self):
+        """
+        Waits for an acknowledgement from the clock. If no acknowledgement is received, logs an
+        error and returns False.
+        """
+        if self.get_clock_connection() is None:
+            self.get_logger().error("Clock is not connected")
+            return False
+        while self._acks_received < 1:
+            if self.poll_clock() is None:
+                self.get_logger().error("Did not receive ack in time")
+                return False
+        self._acks_received -= 1
+        return True
 
     def board_state_callback(self, msg):
         """
@@ -270,7 +318,19 @@ class GameManagerNode(Node):
         self.get_logger().info(
             f"Setting game time to W:{request.time.white_time_left} B:{request.time.black_time_left}"
         )
-        self.get_logger().warn("Clock interface not implemented")  # TODO: Implement clock interface
+
+        if self.get_clock_connection() is None:
+            self.get_logger().error("Clock is not connected")
+            response.success = False
+            return response
+
+        cmd = f"set w {request.time.white_time_left} b {request.time.black_time_left}\n"
+        self._clock_connection.write(cmd)
+        if not self.wait_for_ack():
+            self.get_logger().error(f"Clock did not acknowledge command `{cmd}`")
+            response.success = False
+            return response
+
         self._time_pub.publish(request.time)
         response.success = True
         return response
@@ -306,8 +366,18 @@ class GameManagerNode(Node):
             f"Restarting game with game_state={new_fen}, time_base={new_time_base}, time_increment={new_time_increment}"
         )
 
-        # TODO: Implement clock interface
-        self.get_logger().warn("Clock interface not implemented")
+        if self.self.get_clock_connection() is None:
+            self.get_logger().error("Clock is not connected")
+            response.success = False
+            return response
+
+        cmd = f"rst {request.config.time_base} {request.config.time_increment}\n"
+        self._clock_connection.write(cmd)
+        if not self.wait_for_ack():
+            self.get_logger().error(f"Clock did not acknowledge command `{cmd}`")
+            response.success = False
+            return response
+
         self._white_time_left = new_time_base
         self._black_time_left = new_time_base
         self._time_pub.publish(
@@ -331,12 +401,24 @@ class GameManagerNode(Node):
         accordingly.
         """
 
-        if self._clock_connection is None:
-            # TODO: Attempt to reconnect to the clock
+        if self.self.get_clock_connection() is None:
             return
 
-        # TODO: Implement clock interface
-        return
+        msg = self.poll_clock()
+        if msg is None:
+            self.get_logger().warn("Could not poll clock")
+            return
+        
+        m = re.match(r"time w (\d+) b (\d+)", msg.strip())
+        if m:
+            self._white_time_left = int(m.group(1))
+            self._black_time_left = int(m.group(2))
+            self._time_pub.publish(
+                ChessTime(
+                    white_time_left=self._white_time_left,
+                    black_time_left=self._black_time_left,
+                )
+            )
 
 
 def main(args=None):
