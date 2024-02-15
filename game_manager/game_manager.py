@@ -248,6 +248,36 @@ class GameManagerNode(Node):
                 )
                 return
 
+        # If there are three changed squares, then en passant has occurred. The origin square will
+        # have a pawn of the same color as the destination square. The destination square will be
+        # be the only one containing a piece. If this is not the case, then the move is invalid.
+        elif num_changed_squares == 3:
+            dest_color = None
+            for square in changed_squares:
+                if new_board.piece_at(square) is not None:
+                    if dest_color is not None:
+                        self.get_logger().error(
+                            f"Invalid move detected. En passant move detected, but two destination squares were found: {current_partial_fen} -> {new_partial_fen}"
+                        )
+                        return
+                    destination_square = square
+                    dest_color = new_board.piece_at(destination_square).color
+                    break
+            if dest_color is None:
+                self.get_logger().error(
+                    f"Invalid move detected. En passant move detected, but no destination square was found: {current_partial_fen} -> {new_partial_fen}"
+                )
+                return
+            for square in changed_squares:
+                if self._board.piece_at(square).color == dest_color:
+                    if origin_square is not None:
+                        self.get_logger().error(
+                            f"Invalid move detected. En passant move detected, but two origin squares were found: {current_partial_fen} -> {new_partial_fen}"
+                        )
+                        return
+                    origin_square = square
+                    break
+
         # If there are four changed squares, then castling has occurred. A king will always move
         # when castling, and the `find_move` function requires the king's origin and destination
         # squares (not the rook's). Therefore, as long as one changed square in the current board
@@ -408,7 +438,7 @@ class GameManagerNode(Node):
         if msg is None:
             self.get_logger().warn("Could not poll clock")
             return
-        
+
         m = re.match(r"time w (\d+) b (\d+)", msg.strip())
         if m:
             self._white_time_left = int(m.group(1))
