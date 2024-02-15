@@ -207,6 +207,8 @@ class GameManagerNode(Node):
 
         # Parse the partial FEN string into a board object.
         new_board = chess.Board(msg.fen)
+        current_partial_fen = self._board.board_fen()
+        new_partial_fen = new_board.board_fen()
 
         # Find all squares that have changed.
         changed_squares = []
@@ -217,7 +219,6 @@ class GameManagerNode(Node):
 
         # If there are no changed squares, then no move was made.
         if num_changed_squares == 0:
-            current_partial_fen = self._board.board_fen()
             self.get_logger().warn(f"Received board update with no changes: {current_partial_fen}")
             return
 
@@ -241,8 +242,6 @@ class GameManagerNode(Node):
                 origin_square = changed_squares[1]
                 destination_square = changed_squares[0]
             else:
-                current_partial_fen = self._board.board_fen()
-                new_partial_fen = new_board.board_fen()
                 self.get_logger().error(
                     f"Invalid move detected. One square must be empty and the other must be occupied, but this is not the case: {current_partial_fen} -> {new_partial_fen}"
                 )
@@ -305,8 +304,6 @@ class GameManagerNode(Node):
         # If either the origin or destination square is still None, then we did not find a valid
         # move.
         if origin_square is None or destination_square is None:
-            current_partial_fen = self._board.board_fen()
-            new_partial_fen = new_board.board_fen()
             self.get_logger().error(
                 f"Invalid move detected. Could not determine origin and destination squares: {current_partial_fen} -> {new_partial_fen}"
             )
@@ -325,8 +322,6 @@ class GameManagerNode(Node):
                 promoted_piece_type,
             )
         except chess.IllegalMoveError:
-            current_partial_fen = self._board.board_fen()
-            new_partial_fen = new_board.board_fen()
             self.get_logger().error(
                 f"Invalid move detected. No legal move exists from {origin_square} to {destination_square}: {current_partial_fen} -> {new_partial_fen}"
             )
